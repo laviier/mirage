@@ -60,7 +60,16 @@ __device__ __forceinline__ void
   constexpr int INPUT_TMA_TILE_SIZE = 64;
   constexpr int WEIGHT_TMA_TILE_SIZE = INPUT_TMA_TILE_SIZE;
   constexpr int OUTPUT_TMA_TILE_SIZE = OUTPUT_SIZE < 64 ? OUTPUT_SIZE : 64;
-  constexpr int OUTPUT_ATOM_SIZE = OUTPUT_SIZE <= 256 ? OUTPUT_SIZE : 256;
+  // Find the largest power-of-2 that evenly divides OUTPUT_SIZE, capped at 256.
+  // This ensures NUM_ITER_N = OUTPUT_SIZE / OUTPUT_ATOM_SIZE is exact, avoiding
+  // out-of-bounds TMA accesses for non-power-of-2 dimensions (e.g. 2880).
+  constexpr int OUTPUT_ATOM_SIZE = []() constexpr {
+    if (OUTPUT_SIZE <= 256) return OUTPUT_SIZE;
+    for (int atom = 256; atom >= 16; atom /= 2) {
+      if (OUTPUT_SIZE % atom == 0) return atom;
+    }
+    return 16;
+  }();
   constexpr bool HAS_RESIDUAL = !std::is_void<TMA_RESIDUAL>::value;
 
   // NOTE(Yu): may need to adjust when batch size is larger than 64

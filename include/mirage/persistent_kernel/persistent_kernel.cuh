@@ -132,7 +132,7 @@ __global__ void init_kernel(RuntimeConfig config) {
   // Only a single thread that initializes everything
   if (threadIdx.x == 0) {
     // initialize metadata
-#if defined(MODE_OFFLINE) || defined(MODE_ONLINE)
+#if defined(MODE_OFFLINE) || defined(MODE_ONLINE) || defined(MODE_ONEPASS)
     for (int i = 0; i < config.total_num_requests; i++) {
       config.step[i] = 0;
     }
@@ -386,6 +386,14 @@ __device__ __forceinline__ bool prepare_next_batch(RuntimeConfig const &config,
   } else { // iteration_num == 0
     return true;
   }
+}
+#endif
+
+#ifdef MODE_ONEPASS
+// Onepass mode: run the task graph exactly once, then stop.
+__device__ __forceinline__ bool
+    prepare_next_batch(RuntimeConfig const &config) {
+  return false;
 }
 #endif
 
@@ -1166,7 +1174,7 @@ extern "C" void init_persistent_kernel(std::vector<void *> meta_tensors,
   int npes = 1;
 #endif
 
-#if defined(MODE_OFFLINE) || defined(MODE_ONLINE)
+#if defined(MODE_OFFLINE) || defined(MODE_ONLINE) || defined(MODE_ONEPASS)
   global_runtime_config.request_ids =
       gpu_malloc<int>(sizeof(int) * (MPK_MAX_NUM_BATCHED_REQUESTS + 1));
   global_runtime_config.next_request_id = gpu_malloc<int>(sizeof(int));
@@ -1425,7 +1433,7 @@ extern "C" void finalize_persistent_kernel() {
   gpu_free(global_runtime_config.all_event_num_triggers);
   gpu_free(global_runtime_config.all_tasks);
   gpu_free(global_runtime_config.all_events);
-#if defined(MODE_OFFLINE) || defined(MODE_ONLINE)
+#if defined(MODE_OFFLINE) || defined(MODE_ONLINE) || defined(MODE_ONEPASS)
   gpu_free(global_runtime_config.next_request_id);
   gpu_free(global_runtime_config.page_queue);
   gpu_free(global_runtime_config.page_queue_head);

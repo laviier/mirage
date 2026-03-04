@@ -133,7 +133,7 @@ static void gemm(
                                  &beta,
                                  C,
                                  data_t2cuda_data_type_t<TC>(),
-                                 stride_n_C,
+                                 std::max(stride_n_C, static_cast<size_t>(m)),
                                  batch_stride_C,
                                  batch_size,
                                  COMPUTE_TYPE,

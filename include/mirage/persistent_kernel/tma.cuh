@@ -43,7 +43,7 @@ __host__ static inline void fill_tma_desc(CUtensorMap *tma_desc,
   constexpr CUtensorMapL2promotion tma_l2Promotion =
       CU_TENSOR_MAP_L2_PROMOTION_L2_128B;
   constexpr CUtensorMapFloatOOBfill tma_oobFill =
-      CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE;
+      CU_TENSOR_MAP_FLOAT_OOB_FILL_NAN_REQUEST_ZERO_FMA;
   constexpr CUtensorMapSwizzle tma_swizzle =
       (B == 1   ? CU_TENSOR_MAP_SWIZZLE_32B
        : B == 2 ? CU_TENSOR_MAP_SWIZZLE_64B
@@ -227,21 +227,24 @@ printf("global_addr: %p\n", global_addr);
                                            CU_TENSOR_MAP_INTERLEAVE_NONE,
                                            tma_swizzle,
                                            CU_TENSOR_MAP_L2_PROMOTION_NONE,
-                                           CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE);
+                                           CU_TENSOR_MAP_FLOAT_OOB_FILL_NAN_REQUEST_ZERO_FMA);
 
   char const *error_string;
   CUresult res = cuGetErrorString(result, &error_string);
   if (result != CUDA_SUCCESS) {
-    std::cerr << "TMA Desc Addr:   " << &tma_desc << "\nformat         "
-              << tma_format << "\ndim            " << tma_dim
-              << "\ngmem_address   " << global_addr << "\nglobalDim      "
-              << gmem_prob_shape << "\nglobalStrides  " << gmem_prob_stride
-              << "\nboxDim         " << smem_box_shape << "\nelementStrides "
-              << smem_box_stride << "\ninterleave     " << tma_interleave
-              << "\nswizzle        " << tma_swizzle << "\nl2Promotion    "
-              << tma_l2Promotion << "\noobFill        " << tma_oobFill
-              << std::endl;
-    std::cerr << "Error in tile TMA descriptor creation: " << error_string
+    std::cerr << "TMA Desc creation FAILED"
+              << "\n  gmem_address   " << global_addr
+              << " (aligned=" << ((reinterpret_cast<uint64_t>(global_addr) & 0xF) == 0 ? "yes" : "NO") << ")"
+              << "\n  globalDim      [" << gmem_prob_shape[0] << ", " << gmem_prob_shape[1]
+              << ", " << gmem_prob_shape[2] << ", " << gmem_prob_shape[3] << ", " << gmem_prob_shape[4] << "]"
+              << "\n  globalStrides  [" << gmem_prob_stride[0] << ", " << gmem_prob_stride[1]
+              << ", " << gmem_prob_stride[2] << ", " << gmem_prob_stride[3] << ", " << gmem_prob_stride[4] << "]"
+              << "\n  boxDim         [" << smem_box_shape[0] << ", " << smem_box_shape[1]
+              << ", " << smem_box_shape[2] << ", " << smem_box_shape[3] << ", " << smem_box_shape[4] << "]"
+              << "\n  elementStrides [" << smem_box_stride[0] << ", " << smem_box_stride[1]
+              << ", " << smem_box_stride[2] << ", " << smem_box_stride[3] << ", " << smem_box_stride[4] << "]"
+              << "\n  swizzle=" << tma_swizzle << " oobFill=" << tma_oobFill
+              << "\n  Error: " << error_string
               << std::endl;
     assert(false);
   }
@@ -284,11 +287,12 @@ __host__ inline void fill_tma_desc_by_task(CUtensorMap *tma_desc,
       } else if (param_id == 1) {
         // TMA_WEIGHT
         int const output_size = tensor_desc.dim[0];
-        int const output_atom_size = (output_size >= 256)   ? 256
-                                     : (output_size >= 128) ? 128
-                                     : (output_size >= 64)  ? 64
-                                     : (output_size >= 32)  ? 32
-                                                            : 16;
+        // Find largest power-of-2 that divides output_size, capped at 256
+        int output_atom_size = (output_size <= 256) ? output_size : 256;
+        if (output_size > 256) {
+          while (output_atom_size > 16 && output_size % output_atom_size != 0)
+            output_atom_size /= 2;
+        }
         int const reduction_size = tensor_desc.dim[1];
         uint64_t gmem_shape[2] = {static_cast<uint64_t>(output_size),
                                   static_cast<uint64_t>(reduction_size)};
@@ -310,11 +314,12 @@ __host__ inline void fill_tma_desc_by_task(CUtensorMap *tma_desc,
         int const batch_size = tensor_desc.dim[0];
         int const output_size = tensor_desc.dim[1];
         int const output_stride = (tensor_desc.stride[0]);
-        int const output_atom_size = (output_size >= 256)   ? 256
-                                     : (output_size >= 128) ? 128
-                                     : (output_size >= 64)  ? 64
-                                     : (output_size >= 32)  ? 32
-                                                            : 16;
+        // Find largest power-of-2 that divides output_size, capped at 256
+        int output_atom_size = (output_size <= 256) ? output_size : 256;
+        if (output_size > 256) {
+          while (output_atom_size > 16 && output_size % output_atom_size != 0)
+            output_atom_size /= 2;
+        }
         int const output_tma_cp_size =
             output_atom_size < 64 ? output_atom_size : 64;
         uint64_t gmem_shape[2] = {static_cast<uint64_t>(batch_size),
@@ -338,11 +343,12 @@ __host__ inline void fill_tma_desc_by_task(CUtensorMap *tma_desc,
         int const batch_size = tensor_desc.dim[0];
         int const output_size = tensor_desc.dim[1];
         int const output_stride = (tensor_desc.stride[0]);
-        int const output_atom_size = (output_size >= 256)   ? 256
-                                     : (output_size >= 128) ? 128
-                                     : (output_size >= 64)  ? 64
-                                     : (output_size >= 32)  ? 32
-                                                            : 16;
+        // Find largest power-of-2 that divides output_size, capped at 256
+        int output_atom_size = (output_size <= 256) ? output_size : 256;
+        if (output_size > 256) {
+          while (output_atom_size > 16 && output_size % output_atom_size != 0)
+            output_atom_size /= 2;
+        }
         int const output_tma_cp_size =
             output_atom_size < 64 ? output_atom_size : 64;
         uint64_t gmem_shape[2] = {static_cast<uint64_t>(batch_size),
@@ -912,6 +918,30 @@ __host__ inline void create_tma_desc_for_tensor(FullTaskDesc &task_desc,
                                                 TensorDesc &tensor_desc,
                                                 size_t param_id,
                                                 size_t tma_desc_id) {
+  // TMA requires 16-byte aligned global addresses. If the tensor's base_ptr
+  // is not aligned (e.g. from a PyTorch view/slice of a packed weight buffer),
+  // allocate an aligned copy. This is essential for non-standard hidden sizes
+  // like 2880 where weight packing may produce misaligned offsets.
+  if ((reinterpret_cast<uintptr_t>(tensor_desc.base_ptr) & 0xF) != 0) {
+    // Compute total tensor size in bytes using outermost stride * dim
+    size_t num_elements = 1;
+    if (tensor_desc.num_dims > 0 && tensor_desc.stride[0] > 0) {
+      num_elements = (size_t)tensor_desc.dim[0] * (size_t)tensor_desc.stride[0];
+    } else {
+      for (int d = 0; d < tensor_desc.num_dims; d++) {
+        num_elements *= (size_t)tensor_desc.dim[d];
+      }
+    }
+    size_t elem_size = 2; // bfloat16
+    size_t total_bytes = num_elements * elem_size;
+
+    void *aligned_ptr = nullptr;
+    cudaMalloc(&aligned_ptr, total_bytes);
+    cudaMemcpy(aligned_ptr, tensor_desc.base_ptr, total_bytes,
+               cudaMemcpyDeviceToDevice);
+    tensor_desc.base_ptr = aligned_ptr;
+  }
+
   CUtensorMap host_desc;
   CUtensorMap *desc_ptr;
   fill_tma_desc_by_task(&host_desc,

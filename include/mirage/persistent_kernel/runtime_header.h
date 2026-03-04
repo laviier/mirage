@@ -287,7 +287,7 @@ struct RuntimeConfig {
   int *paged_kv_indices_buffer; // Metadata for LLM serving (paged attention)
   int *paged_kv_last_page_len_buffer; // Metadata for LLM serving
 #if defined(MODE_OFFLINE) || defined(MODE_ONLINE) ||                           \
-    defined(MODE_ONLINE_NOTOKEN)
+    defined(MODE_ONLINE_NOTOKEN) || defined(MODE_ONEPASS)
   int *prompt_length;     // Metadata for online/offline serving
   int *request_ids;       // Metadata for online/offline serving
   int *page_queue;        // Metadata for online/offline serving

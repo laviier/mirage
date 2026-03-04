@@ -817,15 +817,21 @@ int TaskRegister::register_linear_hopper_task(threadblock::Graph const &bgraph,
   constexpr int S = 3;
   constexpr int TMA_CP_ASYNC_SIZE = 64;
   constexpr int TILE_SIZE = 128;
-  int const Kstages = output_size >= 256 ? 3 : 6;
   int const SMEM_M_SIZE = batch_size;
   // int const SMEM_M_SIZE = 64;
   int const output_tma_cp_size = output_size < 64 ? output_size : 64;
-  int const output_atom_size = (output_size >= 256)   ? 256
-                               : (output_size >= 128) ? 128
-                               : (output_size >= 64)  ? 64
-                               : (output_size >= 32)  ? 32
-                                                      : 16;
+  // Find the largest power-of-2 that evenly divides output_size, capped at 256.
+  // This ensures the output dimension is tiled exactly, avoiding out-of-bounds
+  // TMA accesses for non-power-of-2 dimensions (e.g. hidden_size=2880).
+  int output_atom_size = 256;
+  if (output_size > 256) {
+    while (output_atom_size > 16 && output_size % output_atom_size != 0) {
+      output_atom_size /= 2;
+    }
+  } else {
+    output_atom_size = output_size;
+  }
+  int const Kstages = output_atom_size >= 256 ? 3 : 6;
   code.e("using TMA_A = kernel::tma::tma_2d<bfloat16, $, $, $, $, $, $, $, $, "
          "$, $, $, $, true>;",
          B,
@@ -1162,10 +1168,24 @@ int TaskRegister::register_rmsnorm_hopper_task(threadblock::Graph const &bgraph,
   assert(input_ops[0]->dtensor.num_dims == 2);
   assert(output_ops[0]->dtensor.dim[0] == input_ops[0]->dtensor.dim[0]);
   assert(output_ops[0]->dtensor.dim[1] == input_ops[0]->dtensor.dim[1]);
+  // Compute a valid NUM_THREADS for rmsnorm: must divide hidden_dim,
+  // and BYTES_PER_THREAD (= hidden_dim/num_threads * sizeof(T)) must be
+  // divisible by 4. Try 256, 128, 64, 32 in order.
+  int num_threads = 256;
+  for (int candidate : {256, 128, 64, 32}) {
+    if (hidden_dim % candidate == 0) {
+      int elts_per_thread = hidden_dim / candidate;
+      int bytes_per_thread = elts_per_thread * 2; // sizeof(bfloat16) == 2
+      if (bytes_per_thread % 4 == 0) {
+        num_threads = candidate;
+        break;
+      }
+    }
+  }
   mirage::transpiler::CodeKeeper code;
   code.inc_indent();
   code.e(
-      "kernel::rms_norm_hopper_impl<bfloat16, $, $>(", batch_size, hidden_dim);
+      "kernel::rms_norm_hopper_impl<bfloat16, $, $, $>(", batch_size, hidden_dim, num_threads);
   code.e("    task_desc->input_ptrs[0],");
   code.e("    task_desc->input_ptrs[1],");
   code.e("    task_desc->output_ptrs[0],");

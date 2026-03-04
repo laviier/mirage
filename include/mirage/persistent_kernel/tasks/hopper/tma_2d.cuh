@@ -262,7 +262,7 @@ private:
     constexpr CUtensorMapL2promotion tma_l2Promotion =
         CU_TENSOR_MAP_L2_PROMOTION_L2_128B;
     constexpr CUtensorMapFloatOOBfill tma_oobFill =
-        CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE;
+        CU_TENSOR_MAP_FLOAT_OOB_FILL_NAN_REQUEST_ZERO_FMA;
     constexpr CUtensorMapSwizzle tma_swizzle =
         (B == 1   ? CU_TENSOR_MAP_SWIZZLE_32B
          : B == 2 ? CU_TENSOR_MAP_SWIZZLE_64B
@@ -378,7 +378,7 @@ private:
                                              CU_TENSOR_MAP_INTERLEAVE_NONE,
                                              tma_swizzle,
                                              CU_TENSOR_MAP_L2_PROMOTION_NONE,
-                                             CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE);
+                                             CU_TENSOR_MAP_FLOAT_OOB_FILL_NAN_REQUEST_ZERO_FMA);
 
     char const *error_string;
     CUresult res = cuGetErrorString(result, &error_string);
